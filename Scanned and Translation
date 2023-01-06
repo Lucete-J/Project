@@ -1,0 +1,147 @@
+import cv2
+import numpy as np
+import matplotlib.pyplot as plt
+import os
+from PIL import Image
+from pytesseract import *
+import sys
+import urllib.request
+import json
+import ssl
+
+
+print(os.getcwd())
+
+cap = cv2.VideoCapture(0)
+while True :
+    ret, img = cap.read()
+    cv2.imshow('camera', img)
+    if cv2.waitKey(1) != -1 :
+        img_capture = cv2.imwrite('img_capture.png', img)
+        break
+cap.release()
+cv2.destroyAllWindows()
+cv2.waitKey(1)
+cv2.waitKey(1)
+cv2.waitKey(1)
+cv2.waitKey(1)
+
+win_name = "Scanning"
+cap_img = cv2.imread("img_capture.png")
+
+rows, cols = cap_img.shape[:2]
+draw = cap_img.copy()
+pts_cnt = 0
+pts = np.zeros((4,2), dtype=np.float32)
+
+def onMouse(event, x, y, flags, param):  #마우스 이벤트 콜백 함수 구현 ---① 
+    global  pts_cnt                     # 마우스로 찍은 좌표의 갯수 저장
+    if event == cv2.EVENT_LBUTTONDOWN:  
+        cv2.circle(draw, (x,y), 10, (0,255,0), -1) # 좌표에 초록색 동그라미 표시
+        cv2.imshow(win_name, draw)
+        
+        plt.title('original')
+        plt.subplot(1,2,1)
+        plt.imshow(draw[:,:,(2,1,0)])
+        plt.xticks([]),plt.yticks([])
+
+        pts[pts_cnt] = [x,y]            # 마우스 좌표 저장
+        pts_cnt+=1
+        if pts_cnt == 4:                       # 좌표가 4개 수집됨 
+            # 좌표 4개 중 상하좌우 찾기 ---② 
+            sm = pts.sum(axis=1)                 # 4쌍의 좌표 각각 x+y 계산
+            diff = np.diff(pts, axis = 1)       # 4쌍의 좌표 각각 x-y 계산
+
+            topLeft = pts[np.argmin(sm)]         # x+y가 가장 값이 좌상단 좌표
+            bottomRight = pts[np.argmax(sm)]     # x+y가 가장 큰 값이 좌상단 좌표
+            topRight = pts[np.argmin(diff)]     # x-y가 가장 작은 것이 우상단 좌표
+            bottomLeft = pts[np.argmax(diff)]   # x-y가 가장 큰 값이 좌하단 좌표
+
+            # 변환 전 4개 좌표 
+            pts1 = np.float32([topLeft, topRight, bottomRight , bottomLeft])
+
+            # 변환 후 영상에 사용할 서류의 폭과 높이 계산 ---③ 
+            w1 = abs(bottomRight[0] - bottomLeft[0])    # 상단 좌우 좌표간의 거리
+            w2 = abs(topRight[0] - topLeft[0])          # 하당 좌우 좌표간의 거리
+            h1 = abs(topRight[1] - bottomRight[1])      # 우측 상하 좌표간의 거리
+            h2 = abs(topLeft[1] - bottomLeft[1])        # 좌측 상하 좌표간의 거리
+            width = max([w1, w2])                       # 두 좌우 거리간의 최대값이 서류의 폭
+            height = max([h1, h2])                      # 두 상하 거리간의 최대값이 서류의 높이
+            
+            # 변환 후 4개 좌표
+            pts2 = np.float32([[0,0], [width-1,0], 
+                                [width-1,height-1], [0,height-1]])
+
+            # 변환 행렬 계산 
+            mtrx = cv2.getPerspectiveTransform(pts1, pts2)
+            # 원근 변환 적용
+            result = cv2.warpPerspective(cap_img, mtrx, (int(width), int(height))) # 책의 예시와 달리 int로 수정
+            cv2.imshow('scanned', result)
+            scanned_img = cv2.imwrite("Scanned_img.png", result)
+
+            plt.subplot(1,2,2)
+            plt.imshow(result[:,:,(2,1,0)])
+            plt.title('scanned')
+            plt.xticks([]),plt.yticks([])
+            plt.show()
+
+cv2.imshow(win_name, cap_img)
+cv2.setMouseCallback(win_name, onMouse)    # 마우스 콜백 함수를 GUI 윈도우에 등록 ---④
+cv2.waitKey(0)
+cv2.destroyAllWindows()
+cv2.waitKey(1)
+cv2.waitKey(1)
+cv2.waitKey(1)
+cv2.waitKey(1)
+
+trans_img = cv2.imread("Scanned_img.png")
+trans_img_gray = cv2.cvtColor(trans_img, cv2.COLOR_BGR2GRAY)
+
+filename = "{}.png".format(os.getpid())
+cv2.imwrite(filename, trans_img_gray)
+
+text = pytesseract.image_to_string(Image.open(filename), lang=None)
+os.remove(filename)
+
+print(text)
+
+with open('text.txt', 'w', encoding='utf-8') as tx :
+    tx.write(text)
+
+f = open('text.txt', 'r') 
+txt_lines = f.readlines()
+txt_lines = list(map(lambda s: s.strip('/n'), txt_lines))
+
+
+##----------------------------------------------------------------------------------------------------------------
+ssl._create_default_https_context = ssl._create_unverified_context
+
+source = 'en'
+target = 'ko'
+
+with open('text.txt', 'r') as file:
+    read_text = file.read().replace('\n', ' ')
+ 
+encText = urllib.parse.quote(read_text)
+data = f'source={source}&target={target}&text=' + encText
+ 
+url = "https://openapi.naver.com/v1/papago/n2mt"
+client_id = "m4R2dnxcss4reKpxFYNW"
+client_secret = "xvG0DnU5cS"
+ 
+request = urllib.request.Request(url)
+request.add_header("X-Naver-Client-Id", client_id)
+request.add_header("X-Naver-Client-Secret", client_secret)
+ 
+response = urllib.request.urlopen(request, data=data.encode("utf-8"))
+rescode = response.getcode()
+ 
+if rescode == 200:
+    response_body = response.read()
+    decode = json.loads(response_body.decode('utf-8'))
+    result = decode['message']['result']['translatedText']
+    print(result)
+    with open('eng2kor.txt', 'w', encoding='utf-8') as tx :
+        tx.write(result)
+else:
+    print('Error Code:' + str(rescode))
