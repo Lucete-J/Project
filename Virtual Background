@@ -1,0 +1,66 @@
+from PIL import Image
+from torchvision import transforms
+import torch
+import cv2
+import time
+import numpy as np
+
+img = cv2.imread('image.png', cv2.IMREAD_COLOR)
+
+model = torch.hub.load('pytorch/vision:v0.10.0', 'deeplabv3_resnet50', pretrained=True)
+model.eval()
+preprocess = transforms.Compose([
+    transforms.ToTensor(),
+    transforms.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225]),
+])
+to_pil = transforms.ToPILImage()
+to_tensor = transforms.ToTensor()
+
+if torch.cuda.is_available():
+    input_batch = input_batch.to('cuda')
+    model.to('cuda')
+
+cap = cv2.VideoCapture(0)      
+i = 0         
+if cap.isOpened():                      
+    while True: 
+        ret, captured_img = cap.read()
+        if ret:     
+            if cv2.waitKey(1) == 32:
+                captured_img = cv2.cvtColor(captured_img, cv2.COLOR_BGR2RGB)
+                captured_img = Image.fromarray(captured_img)
+
+                processed = preprocess(captured_img)
+                processed = processed.unsqueeze(0)
+
+                with torch.no_grad():
+                    mask = model(processed)['out'][0]
+
+                mask = mask.argmax(0) > 1
+                masked_img = np.array(to_pil(to_tensor(captured_img) * mask))
+                masked_img = cv2.cvtColor(masked_img, cv2.COLOR_RGB2BGR)
+
+                gray_masked = cv2.cvtColor(masked_img, cv2.COLOR_RGB2GRAY)
+                buf, binary_masked = cv2.threshold(gray_masked, 1, 255, cv2.THRESH_BINARY)
+                binary_masked = cv2.cvtColor(binary_masked, cv2.COLOR_GRAY2RGB)
+
+                final_img = cv2.copyTo(masked_img, binary_masked, img)
+                cv2.imwrite('Capture{0}.png' .format(i), final_img)   
+                i += 1
+
+                img = cv2.imread('image.png', cv2.IMREAD_COLOR)
+
+                #show_final_img = cv2.imread('Capture.png', cv2.IMREAD_COLOR)
+                #cv2.imshow('Color', final_img)
+            elif cv2.waitKey(1) == 27:
+                break
+            else :         
+                cv2.imshow('camera', captured_img)  
+        else: 
+            print('no frame')           
+            break
+    
+else:
+    print("Can't open video.")          
+cap.release()                           
+cv2.destroyAllWindows()
